@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.androlib.res.data;
 
 import brut.androlib.AndrolibException;
@@ -24,6 +24,12 @@ import java.util.*;
  * @author Ryszard Wiśniewski <brut.alll@gmail.com>
  */
 public final class ResTypeSpec {
+
+    public static final String RES_TYPE_NAME_ARRAY = "array";
+    public static final String RES_TYPE_NAME_PLURALS = "plurals";
+    public static final String RES_TYPE_NAME_STYLES = "style";
+    public static final String RES_TYPE_NAME_ATTR = "attr";
+
     private final String mName;
     private final Map<String, ResResSpec> mResSpecs = new LinkedHashMap<String, ResResSpec>();
 
@@ -62,11 +68,15 @@ public final class ResTypeSpec {
     }
 
     public ResResSpec getResSpec(String name) throws AndrolibException {
-        ResResSpec spec = mResSpecs.get(name);
+        ResResSpec spec = getResSpecUnsafe(name);
         if (spec == null) {
             throw new UndefinedResObject(String.format("resource spec: %s/%s", getName(), name));
         }
         return spec;
+    }
+
+    public ResResSpec getResSpecUnsafe(String name) {
+        return mResSpecs.get(name);
     }
 
     public void removeResSpec(ResResSpec spec) throws AndrolibException {

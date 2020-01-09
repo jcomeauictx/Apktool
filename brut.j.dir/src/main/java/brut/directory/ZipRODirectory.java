@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.directory;
 
 import java.io.File;
@@ -101,13 +101,33 @@ public class ZipRODirectory extends AbstractDirectory {
     }
 
     @Override
+    public long getSize(String fileName)
+            throws DirectoryException {
+        ZipEntry entry = getZipFileEntry(fileName);
+        return entry.getSize();
+    }
+
+    @Override
+    public long getCompressedSize(String fileName)
+            throws DirectoryException {
+        ZipEntry entry = getZipFileEntry(fileName);
+        return entry.getCompressedSize();
+    }
+
+    @Override
     public int getCompressionLevel(String fileName)
             throws DirectoryException {
-        ZipEntry entry =  mZipFile.getEntry(fileName);
+        ZipEntry entry = getZipFileEntry(fileName);
+        return entry.getMethod();
+    }
+
+    private ZipEntry getZipFileEntry(String fileName)
+            throws DirectoryException {
+        ZipEntry entry = mZipFile.getEntry(fileName);
         if (entry == null) {
             throw new PathNotExist("Entry not found: " + fileName);
         }
-        return entry.getMethod();
+        return entry;
     }
 
     private void loadAll() {
@@ -120,7 +140,7 @@ public class ZipRODirectory extends AbstractDirectory {
             ZipEntry entry = entries.nextElement();
             String name = entry.getName();
             
-            if (name.equals(getPath()) || ! name.startsWith(getPath())) {
+            if (name.equals(getPath()) || ! name.startsWith(getPath()) || name.contains(".." + separator)) {
                 continue;
             }
             
@@ -151,4 +171,8 @@ public class ZipRODirectory extends AbstractDirectory {
         return mZipFile;
     }
 
+
+    public void close() throws IOException {
+        mZipFile.close();
+    }
 }

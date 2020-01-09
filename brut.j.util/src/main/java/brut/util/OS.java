@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,12 +14,14 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.util;
 
 import brut.common.BrutException;
 import java.io.*;
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 import org.apache.commons.io.IOUtils;
@@ -100,9 +103,33 @@ public class OS {
         }
     }
 
+    public static String execAndReturn(String[] cmd) {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        try {
+            ProcessBuilder builder = new ProcessBuilder(cmd);
+            builder.redirectErrorStream(true);
+
+            Process process = builder.start();
+            StreamCollector collector = new StreamCollector(process.getInputStream());
+            executor.execute(collector);
+
+            process.waitFor();
+            if (! executor.awaitTermination(15, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+                if (! executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    System.err.println("Stream collector did not terminate.");
+                }
+            }
+            return collector.get();
+        } catch (IOException | InterruptedException e) {
+            return null;
+        }
+    }
+
     public static File createTempDirectory() throws BrutException {
         try {
             File tmp = File.createTempFile("BRUT", null);
+            tmp.deleteOnExit();
             if (!tmp.delete()) {
                 throw new BrutException("Could not delete tmp file: " + tmp.getAbsolutePath());
             }
@@ -141,5 +168,29 @@ public class OS {
 
         private final InputStream mIn;
         private final String mType;
+    }
+
+    static class StreamCollector implements Runnable {
+        private final StringBuffer buffer = new StringBuffer();
+        private final InputStream inputStream;
+
+        public StreamCollector(InputStream inputStream) {
+            super();
+            this.inputStream = inputStream;
+        }
+
+        @Override
+        public void run() {
+            String line;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+                while ((line = reader.readLine()) != null) {
+                    buffer.append(line).append('\n');
+                }
+            } catch (IOException ignored) {}
+        }
+
+        public String get() {
+            return buffer.toString();
+        }
     }
 }

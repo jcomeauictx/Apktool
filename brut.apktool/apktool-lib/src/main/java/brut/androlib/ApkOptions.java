@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -26,9 +27,18 @@ public class ApkOptions {
     public boolean updateFiles = false;
     public boolean isFramework = false;
     public boolean resourcesAreCompressed = false;
+    public boolean useAapt2 = false;
+    public boolean noCrunch = false;
+    public int forceApi = 0;
     public Collection<String> doNotCompress;
 
     public String frameworkFolderLocation = null;
     public String frameworkTag = null;
     public String aaptPath = "";
+
+    public int aaptVersion = 1; // default to v1
+
+    public boolean isAapt2() {
+        return this.useAapt2 || this.aaptVersion == 2;
+    }
 }

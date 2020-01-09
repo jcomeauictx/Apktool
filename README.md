@@ -13,6 +13,18 @@ It is NOT intended for piracy and other non-legal uses. It could be used for loc
 - [Project Page](http://ibotpeaches.github.io/Apktool/)
 - [#apktool on freenode](http://webchat.freenode.net/?channels=apktool)
 
+#### Sponsored by
+
+* [Sourcetoad](https://www.sourcetoad.com/cool-tools/apktool/) - helping with a weekly sponsorship for continued improvement and maintenance of the project.
+
+#### IDE of Choice
+
+[![JetBrains IntelliJ](.github/intellij.png?raw=true)](https://www.jetbrains.com/idea/)
+
+#### Security Vulnerabilities
+
+If you discover a security vulnerability within Apktool, please send an e-mail to Connor Tumbleson at connor.tumbleson(at)gmail.com. All security vulnerabilities will be promptly addressed.
+
 #### Links
 - [Downloads](https://bitbucket.org/iBotPeaches/apktool/downloads)
 - [Downloads Mirror](http://connortumbleson.com/apktool/)

@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.androlib.res.data.value;
 
 import brut.androlib.AndrolibException;
@@ -81,6 +81,13 @@ public abstract class ResScalarValue extends ResIntBasedValue implements
                     item = true;
                 }
             }
+        }
+
+        // Android does not allow values (false) for ids.xml anymore
+        // https://issuetracker.google.com/issues/80475496
+        // But it decodes as a ResBoolean, which makes no sense. So force it to empty
+        if (type.equalsIgnoreCase("id") && !body.isEmpty()) {
+            body = "";
         }
 
         // check for using attrib as node or item

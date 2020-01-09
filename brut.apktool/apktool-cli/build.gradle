@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-apply plugin: 'eu.appsatori.fatjar'
+apply plugin: 'com.github.johnrengelman.shadow'
 
 dependencies {
     compile depends.commons_cli
@@ -30,37 +30,49 @@ buildscript {
     }
 }
 
-gradle.taskGraph.whenReady {
-  fatJar { 
+jar {
     manifest {
-      attributes("Main-Class": "brut.apktool.Main")
+        attributes 'Main-Class' : 'brut.apktool.Main'
     }
-  }
 }
 
 task cleanOutputDirectory(type: Delete) {
-    delete fileTree(dir: jar.destinationDir.getPath(), exclude: "apktool-cli.jar")
+    delete fileTree(dir: jar.getDestinationDirectory().getAsFile(), exclude: "apktool-cli-all.jar")
 }
 
-task proguard(type: proguard.gradle.ProGuardTask, dependsOn: fatJar) {
-    def outFile = jar.destinationDir.getPath() + '/' + "apktool" + '-' + project.apktool_version + '-small' + '.' + jar.extension
+task proguard(type: proguard.gradle.ProGuardTask, dependsOn: shadowJar) {
+    injars shadowJar.getArchiveFile()
 
-    injars fatJar.archivePath
-    outjars outFile
+    // Java 9 and prior uses merged package for runtime, later uses split jmod files.
+    if (JavaVersion.current() <= JavaVersion.VERSION_1_8) {
+        libraryjars "${System.properties['java.home']}/lib/jce.jar"
+        libraryjars "${System.properties['java.home']}/lib/rt.jar"
+    } else {
+        libraryjars "${System.properties['java.home']}/jmods/java.base.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+        libraryjars "${System.properties['java.home']}/jmods/java.compiler.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+        libraryjars "${System.properties['java.home']}/jmods/java.logging.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+        libraryjars "${System.properties['java.home']}/jmods/java.xml.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+        libraryjars "${System.properties['java.home']}/jmods/java.desktop.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+        libraryjars "${System.properties['java.home']}/jmods/java.sql.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
 
-    libraryjars "${System.properties['java.home']}/lib/rt.jar"
+        libraryjars "${System.properties['java.home']}/jmods/jdk.unsupported.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+    }
 
     dontobfuscate
     dontoptimize
 
     keep 'public class brut.apktool.Main { public static void main(java.lang.String[]); }'
-    keep 'class org.yaml.snakeyaml.** { public protected private *; }'
     keepclassmembers 'enum * { public static **[] values(); public static ** valueOf(java.lang.String); }'
     dontwarn 'com.google.common.base.**'
     dontwarn 'com.google.common.collect.**'
     dontwarn 'com.google.common.util.**'
     dontwarn 'javax.xml.xpath.**'
     dontnote '**'
+
+    def outPath = jar.getDestinationDirectory().getAsFile().get().toString()
+    def extension = jar.archiveExtension.get().toString()
+    def outFile = outPath + '/' + "apktool" + '-' + project.apktool_version + '-small' + '.' + extension
+    outjars outFile
 }
 
 proguard.dependsOn cleanOutputDirectory

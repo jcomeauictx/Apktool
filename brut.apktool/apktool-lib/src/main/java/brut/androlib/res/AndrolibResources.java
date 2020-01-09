@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,31 +14,25 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.androlib.res;
 
 import brut.androlib.AndrolibException;
 import brut.androlib.ApkOptions;
 import brut.androlib.err.CantFindFrameworkResException;
+import brut.androlib.meta.MetaInfo;
 import brut.androlib.meta.PackageInfo;
 import brut.androlib.meta.VersionInfo;
 import brut.androlib.res.data.*;
 import brut.androlib.res.decoder.*;
 import brut.androlib.res.decoder.ARSCDecoder.ARSCData;
 import brut.androlib.res.decoder.ARSCDecoder.FlagsOffset;
-import brut.directory.ExtFile;
+import brut.directory.*;
 import brut.androlib.res.util.ExtMXSerializer;
 import brut.androlib.res.util.ExtXmlSerializer;
 import brut.androlib.res.xml.ResValuesXmlSerializable;
 import brut.androlib.res.xml.ResXmlPatcher;
 import brut.common.BrutException;
-import brut.directory.Directory;
-import brut.directory.DirectoryException;
-import brut.directory.FileDirectory;
-import brut.util.Duo;
-import brut.util.Jar;
-import brut.util.OS;
-import brut.util.OSDetection;
+import brut.util.*;
 import org.apache.commons.io.IOUtils;
 import org.xmlpull.v1.XmlSerializer;
 
@@ -101,19 +96,22 @@ final public class AndrolibResources {
     }
 
     public ResPackage selectPkgWithMostResSpecs(ResPackage[] pkgs)
-        throws AndrolibException {
+            throws AndrolibException {
         int id = 0;
         int value = 0;
+        int index = 0;
 
-        for (ResPackage resPackage : pkgs) {
+        for (int i = 0; i < pkgs.length; i++) {
+            ResPackage resPackage = pkgs[i];
             if (resPackage.getResSpecCount() > value && ! resPackage.getName().equalsIgnoreCase("android")) {
                 value = resPackage.getResSpecCount();
                 id = resPackage.getId();
+                index = i;
             }
         }
 
         // if id is still 0, we only have one pkgId which is "android" -> 1
-        return (id == 0) ? pkgs[0] : pkgs[1];
+        return (id == 0) ? pkgs[0] : pkgs[index];
     }
 
     public ResPackage loadFrameworkPkg(ResTable resTable, int id, String frameTag)
@@ -121,7 +119,8 @@ final public class AndrolibResources {
         File apk = getFrameworkApk(id, frameTag);
 
         LOGGER.info("Loading resource table from file: " + apk);
-        ResPackage[] pkgs = getResPackagesFromApk(new ExtFile(apk), resTable, true);
+        mFramework = new ExtFile(apk);
+        ResPackage[] pkgs = getResPackagesFromApk(mFramework, resTable, true);
 
         ResPackage pkg;
         if (pkgs.length > 1) {
@@ -171,22 +170,19 @@ final public class AndrolibResources {
 
         // compare resources.arsc package name to the one present in AndroidManifest
         ResPackage resPackage = resTable.getCurrentResPackage();
-        String packageOriginal = resPackage.getName();
+        String pkgOriginal = resPackage.getName();
         mPackageRenamed = resTable.getPackageRenamed();
 
         resTable.setPackageId(resPackage.getId());
-        resTable.setPackageOriginal(packageOriginal);
+        resTable.setPackageOriginal(pkgOriginal);
 
-        // 1) Check if packageOriginal === mPackageRenamed
-        // 2) Check if packageOriginal is ignored via IGNORED_PACKAGES
-        // 2a) If its ignored, make sure the mPackageRenamed isn't explicitly allowed
-        if (packageOriginal.equalsIgnoreCase(mPackageRenamed) ||
-                (Arrays.asList(IGNORED_PACKAGES).contains(packageOriginal) &&
-                ! Arrays.asList(ALLOWED_PACKAGES).contains(mPackageRenamed))) {
+        // 1) Check if pkgOriginal === mPackageRenamed
+        // 2) Check if pkgOriginal is ignored via IGNORED_PACKAGES
+        if (pkgOriginal.equalsIgnoreCase(mPackageRenamed) || (Arrays.asList(IGNORED_PACKAGES).contains(pkgOriginal))) {
             LOGGER.info("Regular manifest package...");
         } else {
-            LOGGER.info("Renamed manifest package found! Replacing " + mPackageRenamed + " with " + packageOriginal);
-            ResXmlPatcher.renameManifestPackage(new File(filePath), packageOriginal);
+            LOGGER.info("Renamed manifest package found! Replacing " + mPackageRenamed + " with " + pkgOriginal);
+            ResXmlPatcher.renameManifestPackage(new File(filePath), pkgOriginal);
         }
     }
 
@@ -306,40 +302,210 @@ final public class AndrolibResources {
         mSharedLibrary = flag;
     }
 
-    public void aaptPackage(File apkFile, File manifest, File resDir, File rawDir, File assetDir, File[] include)
+    public void setSparseResources(boolean flag) {
+        mSparseResources = flag;
+    }
+
+    public String checkTargetSdkVersionBounds() {
+        int target = mapSdkShorthandToVersion(mTargetSdkVersion);
+
+        int min = (mMinSdkVersion != null) ? mapSdkShorthandToVersion(mMinSdkVersion) : 0;
+        int max = (mMaxSdkVersion != null) ? mapSdkShorthandToVersion(mMaxSdkVersion) : target;
+
+        target = Math.min(max, target);
+        target = Math.max(min, target);
+        return Integer.toString(target);
+    }
+
+    private File createDoNotCompressExtensionsFile(ApkOptions apkOptions) throws AndrolibException {
+        if (apkOptions.doNotCompress == null || apkOptions.doNotCompress.isEmpty()) {
+            return null;
+        }
+
+        File doNotCompressFile;
+        try {
+            doNotCompressFile = File.createTempFile("APKTOOL", null);
+            doNotCompressFile.deleteOnExit();
+
+            BufferedWriter fileWriter = new BufferedWriter(new FileWriter(doNotCompressFile));
+            for (String extension : apkOptions.doNotCompress) {
+                fileWriter.write(extension);
+                fileWriter.newLine();
+            }
+            fileWriter.close();
+
+            return doNotCompressFile;
+        } catch (IOException ex) {
+            throw new AndrolibException(ex);
+        }
+    }
+
+    private void aapt2Package(File apkFile, File manifest, File resDir, File rawDir, File assetDir, File[] include,
+                              List<String> cmd, boolean customAapt)
             throws AndrolibException {
 
-        boolean customAapt = false;
-        String aaptPath = apkOptions.aaptPath;
-        List<String> cmd = new ArrayList<String>();
+        List<String> compileCommand = new ArrayList<>(cmd);
+        File resourcesZip = null;
 
-        // path for aapt binary
-        if (! aaptPath.isEmpty()) {
-            File aaptFile = new File(aaptPath);
-            if (aaptFile.canRead() && aaptFile.exists()) {
-                aaptFile.setExecutable(true);
-                cmd.add(aaptFile.getPath());
-                customAapt = true;
+        if (resDir != null) {
+            File buildDir = new File(resDir.getParent(), "build");
+            resourcesZip = new File(buildDir, "resources.zip");
+        }
 
-                if (apkOptions.verbose) {
-                    LOGGER.info(aaptFile.getPath() + " being used as aapt location.");
-                }
-            } else {
-                LOGGER.warning("aapt location could not be found. Defaulting back to default");
+        if (resDir != null && !resourcesZip.exists()) {
 
-                try {
-                    cmd.add(getAaptBinaryFile().getAbsolutePath());
-                } catch (BrutException ignored) {
-                    cmd.add("aapt");
-                }
+            // Compile the files into flat arsc files
+            cmd.add("compile");
+
+            cmd.add("--dir");
+            cmd.add(resDir.getAbsolutePath());
+
+            // Treats error that used to be valid in aapt1 as warnings in aapt2
+            cmd.add("--legacy");
+
+            File buildDir = new File(resDir.getParent(), "build");
+            resourcesZip = new File(buildDir, "resources.zip");
+
+            cmd.add("-o");
+            cmd.add(resourcesZip.getAbsolutePath());
+
+            if (apkOptions.verbose) {
+                cmd.add("-v");
             }
-        } else {
+
+            if (apkOptions.noCrunch) {
+                cmd.add("--no-crunch");
+            }
+
             try {
-                cmd.add(getAaptBinaryFile().getAbsolutePath());
-            } catch (BrutException ignored) {
-                cmd.add("aapt");
+                OS.exec(cmd.toArray(new String[0]));
+                LOGGER.fine("aapt2 compile command ran: ");
+                LOGGER.fine(cmd.toString());
+            } catch (BrutException ex) {
+                throw new AndrolibException(ex);
             }
         }
+
+        if (manifest == null) {
+            return;
+        }
+
+        // Link them into the final apk, reusing our old command after clearing for the aapt2 binary
+        cmd = new ArrayList<>(compileCommand);
+        cmd.add("link");
+
+        cmd.add("-o");
+        cmd.add(apkFile.getAbsolutePath());
+
+        if (mPackageId != null && ! mSharedLibrary) {
+            cmd.add("--package-id");
+            cmd.add(mPackageId);
+        }
+
+        if (mSharedLibrary) {
+            cmd.add("--shared-lib");
+        }
+
+        if (mMinSdkVersion != null) {
+            cmd.add("--min-sdk-version");
+            cmd.add(mMinSdkVersion);
+        }
+
+        if (mTargetSdkVersion != null) {
+            cmd.add("--target-sdk-version");
+            cmd.add(checkTargetSdkVersionBounds());
+        }
+
+        if (mPackageRenamed != null) {
+            cmd.add("--rename-manifest-package");
+            cmd.add(mPackageRenamed);
+
+            cmd.add("--rename-instrumentation-target-package");
+            cmd.add(mPackageRenamed);
+        }
+
+        if (mVersionCode != null) {
+            cmd.add("--version-code");
+            cmd.add(mVersionCode);
+        }
+
+        if (mVersionName != null) {
+            cmd.add("--version-name");
+            cmd.add(mVersionName);
+        }
+
+        // Disable automatic changes
+        cmd.add("--no-auto-version");
+        cmd.add("--no-version-vectors");
+        cmd.add("--no-version-transitions");
+        cmd.add("--no-resource-deduping");
+
+        if (mSparseResources) {
+            cmd.add("--enable-sparse-encoding");
+        }
+
+        if (apkOptions.isFramework) {
+            cmd.add("-x");
+        }
+
+        if (apkOptions.doNotCompress != null && !customAapt) {
+            // Use custom -e option to avoid limits on commandline length.
+            // Can only be used when custom aapt binary is not used.
+            String extensionsFilePath = createDoNotCompressExtensionsFile(apkOptions).getAbsolutePath();
+            cmd.add("-e");
+            cmd.add(extensionsFilePath);
+        } else if (apkOptions.doNotCompress != null) {
+            for (String file : apkOptions.doNotCompress) {
+                cmd.add("-0");
+                cmd.add(file);
+            }
+        }
+
+        if (!apkOptions.resourcesAreCompressed) {
+            cmd.add("-0");
+            cmd.add("arsc");
+        }
+
+        if (include != null) {
+            for (File file : include) {
+                cmd.add("-I");
+                cmd.add(file.getPath());
+            }
+        }
+
+        cmd.add("--manifest");
+        cmd.add(manifest.getAbsolutePath());
+
+        if (assetDir != null) {
+            cmd.add("-A");
+            cmd.add(assetDir.getAbsolutePath());
+        }
+
+        if (rawDir != null) {
+            cmd.add("-R");
+            cmd.add(rawDir.getAbsolutePath());
+        }
+
+        if (apkOptions.verbose) {
+            cmd.add("-v");
+        }
+
+        if (resourcesZip != null) {
+            cmd.add(resourcesZip.getAbsolutePath());
+        }
+
+        try {
+            OS.exec(cmd.toArray(new String[0]));
+            LOGGER.fine("aapt2 link command ran: ");
+            LOGGER.fine(cmd.toString());
+        } catch (BrutException ex) {
+            throw new AndrolibException(ex);
+        }
+    }
+
+    private void aapt1Package(File apkFile, File manifest, File resDir, File rawDir, File assetDir, File[] include,
+                              List<String> cmd, boolean customAapt)
+            throws AndrolibException {
 
         cmd.add("p");
 
@@ -351,6 +517,9 @@ final public class AndrolibResources {
         }
         if (apkOptions.debugMode) { // inject debuggable="true" into manifest
             cmd.add("--debug-mode");
+        }
+        if (apkOptions.noCrunch) {
+            cmd.add("--no-crunch");
         }
         // force package id so that some frameworks build with correct id
         // disable if user adds own aapt (can't know if they have this feature)
@@ -367,7 +536,10 @@ final public class AndrolibResources {
         }
         if (mTargetSdkVersion != null) {
             cmd.add("--target-sdk-version");
-            cmd.add(mTargetSdkVersion);
+
+            // Ensure that targetSdkVersion is between minSdkVersion/maxSdkVersion if
+            // they are specified.
+            cmd.add(checkTargetSdkVersionBounds());
         }
         if (mMaxSdkVersion != null) {
             cmd.add("--max-sdk-version");
@@ -398,12 +570,19 @@ final public class AndrolibResources {
             cmd.add("-x");
         }
 
-        if (apkOptions.doNotCompress != null) {
+        if (apkOptions.doNotCompress != null && !customAapt) {
+            // Use custom -e option to avoid limits on commandline length.
+            // Can only be used when custom aapt binary is not used.
+            String extensionsFilePath = createDoNotCompressExtensionsFile(apkOptions).getAbsolutePath();
+            cmd.add("-e");
+            cmd.add(extensionsFilePath);
+        } else if (apkOptions.doNotCompress != null) {
             for (String file : apkOptions.doNotCompress) {
                 cmd.add("-0");
                 cmd.add(file);
             }
         }
+
         if (!apkOptions.resourcesAreCompressed) {
             cmd.add("-0");
             cmd.add("arsc");
@@ -432,12 +611,68 @@ final public class AndrolibResources {
         }
         try {
             OS.exec(cmd.toArray(new String[0]));
-            if (apkOptions.verbose) {
-                LOGGER.info("command ran: ");
-                LOGGER.info(cmd.toString());
-            }
+            LOGGER.fine("command ran: ");
+            LOGGER.fine(cmd.toString());
         } catch (BrutException ex) {
             throw new AndrolibException(ex);
+        }
+    }
+
+    public void aaptPackage(File apkFile, File manifest, File resDir, File rawDir, File assetDir, File[] include)
+            throws AndrolibException {
+
+        String aaptPath = apkOptions.aaptPath;
+        boolean customAapt = !aaptPath.isEmpty();
+        List<String> cmd = new ArrayList<String>();
+
+        try {
+            String aaptCommand = AaptManager.getAaptExecutionCommand(aaptPath, getAaptBinaryFile());
+            cmd.add(aaptCommand);
+        } catch (BrutException ex) {
+            LOGGER.warning("aapt: " + ex.getMessage() + " (defaulting to $PATH binary)");
+            cmd.add(AaptManager.getAaptBinaryName(getAaptVersion()));
+        }
+
+        if (apkOptions.isAapt2()) {
+            aapt2Package(apkFile, manifest, resDir, rawDir, assetDir, include, cmd, customAapt);
+            return;
+        }
+        aapt1Package(apkFile, manifest, resDir, rawDir, assetDir, include, cmd, customAapt);
+    }
+
+    public void zipPackage(File apkFile, File rawDir, File assetDir)
+            throws AndrolibException {
+
+        try {
+            ZipUtils.zipFolders(rawDir, apkFile, assetDir, apkOptions.doNotCompress);
+        } catch (IOException | BrutException ex) {
+            throw new AndrolibException(ex);
+        }
+    }
+
+    public int getMinSdkVersionFromAndroidCodename(MetaInfo meta, String sdkVersion) {
+        int sdkNumber = mapSdkShorthandToVersion(sdkVersion);
+
+        if (sdkNumber == ResConfigFlags.SDK_BASE) {
+            return Integer.parseInt(meta.sdkInfo.get("minSdkVersion"));
+        }
+        return sdkNumber;
+    }
+
+    private int mapSdkShorthandToVersion(String sdkVersion) {
+        switch (sdkVersion.toUpperCase()) {
+            case "M":
+                return ResConfigFlags.SDK_MNC;
+            case "N":
+                return ResConfigFlags.SDK_NOUGAT;
+            case "O":
+                return ResConfigFlags.SDK_OREO;
+            case "P":
+                return ResConfigFlags.SDK_P;
+            case "Q":
+                return ResConfigFlags.SDK_Q;
+            default:
+                return Integer.parseInt(sdkVersion);
         }
     }
 
@@ -459,16 +694,6 @@ final public class AndrolibResources {
         it.next();
         it.next();
         return it.next().contains("0x01");
-    }
-
-    public void tagSmaliResIDs(ResTable resTable, File smaliDir)
-            throws AndrolibException {
-        new ResSmaliUpdater().tagResIDs(resTable, smaliDir);
-    }
-
-    public void updateSmaliResIDs(ResTable resTable, File smaliDir)
-            throws AndrolibException {
-        new ResSmaliUpdater().updateResIDs(resTable, smaliDir);
     }
 
     public Duo<ResFileDecoder, AXmlResourceParser> getResFileDecoder() {
@@ -555,8 +780,15 @@ final public class AndrolibResources {
     private ResPackage[] getResPackagesFromApk(ExtFile apkFile,ResTable resTable, boolean keepBroken)
             throws AndrolibException {
         try {
-            BufferedInputStream bfi = new BufferedInputStream(apkFile.getDirectory().getFileInput("resources.arsc"));
-            return ARSCDecoder.decode(bfi, false, keepBroken, resTable).getPackages();
+            Directory dir = apkFile.getDirectory();
+            BufferedInputStream bfi = new BufferedInputStream(dir.getFileInput("resources.arsc"));
+            try {
+                return ARSCDecoder.decode(bfi, false, keepBroken, resTable).getPackages();
+            } finally {
+                try {
+                    bfi.close();
+                } catch (IOException ignored) {}
+            }
         } catch (DirectoryException ex) {
             throw new AndrolibException("Could not load resources.arsc from file: " + apkFile, ex);
         }
@@ -722,14 +954,6 @@ final public class AndrolibResources {
             path = apkOptions.frameworkFolderLocation;
         } else {
             File parentPath = new File(System.getProperty("user.home"));
-            if (! parentPath.canWrite()) {
-                LOGGER.severe(String.format("WARNING: Could not write to $HOME (%s), using %s instead...",
-                        parentPath.getAbsolutePath(), System.getProperty("java.io.tmpdir")));
-                LOGGER.severe("Please be aware this is a volatile directory and frameworks could go missing, " +
-                        "please utilize --frame-path if the default storage directory is unavailable");
-
-                parentPath = new File(System.getProperty("java.io.tmpdir"));
-            }
 
             if (OSDetection.isMacOSX()) {
                 path = parentPath.getAbsolutePath() + String.format("%1$sLibrary%1$sapktool%1$sframework", File.separatorChar);
@@ -742,9 +966,12 @@ final public class AndrolibResources {
 
         File dir = new File(path);
 
+        if (!dir.isDirectory() && dir.isFile()) {
+            throw new AndrolibException("--frame-path is set to a file, not a directory.");
+        }
+
         if (dir.getParentFile() != null && dir.getParentFile().isFile()) {
-            LOGGER.severe("Please remove file at " + dir.getParentFile());
-            System.exit(1);
+            throw new AndrolibException("Please remove file at " + dir.getParentFile());
         }
 
         if (! dir.exists()) {
@@ -756,50 +983,34 @@ final public class AndrolibResources {
             }
         }
 
+        if (apkOptions.frameworkFolderLocation == null) {
+            if (! dir.canWrite()) {
+                LOGGER.severe(String.format("WARNING: Could not write to (%1$s), using %2$s instead...",
+                        dir.getAbsolutePath(), System.getProperty("java.io.tmpdir")));
+                LOGGER.severe("Please be aware this is a volatile directory and frameworks could go missing, " +
+                        "please utilize --frame-path if the default storage directory is unavailable");
+
+                dir = new File(System.getProperty("java.io.tmpdir"));
+            }
+        }
+
         mFrameworkDirectory = dir;
         return dir;
     }
 
-    /**
-     * Using a prebuilt aapt and forcing its use, allows us to prevent bugs from older aapt's
-     * along with having a finer control over the build procedure.
-     *
-     * Aapt can still be overridden via --aapt/-a on build, but specific features will be disabled
-     *
-     * @url https://github.com/iBotPeaches/platform_frameworks_base
-     * @throws AndrolibException
-     */
-    public File getAaptBinaryFile() throws AndrolibException {
-        File aaptBinary;
-
+    private File getAaptBinaryFile() throws AndrolibException {
         try {
-            if (OSDetection.isMacOSX()) {
-                if (OSDetection.is64Bit()) {
-                    aaptBinary = Jar.getResourceAsFile("/prebuilt/aapt/macosx/64/aapt");
-                } else {
-                    aaptBinary = Jar.getResourceAsFile("/prebuilt/aapt/macosx/32/aapt");
-                }
-            } else if (OSDetection.isUnix()) {
-                if (OSDetection.is64Bit()) {
-                    aaptBinary = Jar.getResourceAsFile("/prebuilt/aapt/linux/64/aapt");
-                } else {
-                    aaptBinary = Jar.getResourceAsFile("/prebuilt/aapt/linux/32/aapt");
-                }
-            } else if (OSDetection.isWindows()) {
-                aaptBinary = Jar.getResourceAsFile("/prebuilt/aapt/windows/aapt.exe");
-            } else {
-                LOGGER.warning("Unknown Operating System: " + OSDetection.returnOS());
-                return null;
+            if (getAaptVersion() == 2) {
+                return AaptManager.getAppt2();
             }
+            return AaptManager.getAppt1();
         } catch (BrutException ex) {
             throw new AndrolibException(ex);
         }
-        if (aaptBinary.setExecutable(true)) {
-            return aaptBinary;
-        }
+    }
 
-        System.err.println("Can't set aapt binary as executable");
-        throw new AndrolibException("Can't set aapt binary as executable");
+    private int getAaptVersion() {
+        return apkOptions.isAapt2() ? 2 : 1;
     }
 
     public File getAndroidResourcesFile() throws AndrolibException {
@@ -807,6 +1018,12 @@ final public class AndrolibResources {
             return Jar.getResourceAsFile("/brut/androlib/android-framework.jar");
         } catch (BrutException ex) {
             throw new AndrolibException(ex);
+        }
+    }
+
+    public void close() throws IOException {
+        if (mFramework != null) {
+            mFramework.close();
         }
     }
 
@@ -819,6 +1036,8 @@ final public class AndrolibResources {
 
     private File mFrameworkDirectory = null;
 
+    private ExtFile mFramework = null;
+
     private String mMinSdkVersion = null;
     private String mMaxSdkVersion = null;
     private String mTargetSdkVersion = null;
@@ -828,11 +1047,9 @@ final public class AndrolibResources {
     private String mPackageId = null;
 
     private boolean mSharedLibrary = false;
+    private boolean mSparseResources = false;
 
     private final static String[] IGNORED_PACKAGES = new String[] {
-            "android", "com.htc", "miui", "com.lge", "com.lge.internal", "yi", "com.miui.core", "flyme",
-            "air.com.adobe.appentry" };
-
-    private final static String[] ALLOWED_PACKAGES = new String[] {
-            "com.miui" };
+            "android", "com.htc", "com.lge", "com.lge.internal", "yi", "flyme", "air.com.adobe.appentry",
+            "FFFFFFFFFFFFFFFFFFFFFF" };
 }

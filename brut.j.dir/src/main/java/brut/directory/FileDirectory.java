@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.directory;
 
 import java.io.*;
@@ -38,6 +38,22 @@ public class FileDirectory extends AbstractDirectory {
             throw new DirectoryException("file must be a directory: " + dir);
         }
         mDir = dir;
+    }
+
+    @Override
+    public long getSize(String fileName)
+            throws DirectoryException {
+        File file = new File(generatePath(fileName));
+        if (! file.isFile()) {
+            throw new DirectoryException("file must be a file: " + file);
+        }
+        return file.length();
+    }
+
+    @Override
+    public long getCompressedSize(String fileName)
+            throws DirectoryException {
+        return getSize(fileName);
     }
 
     @Override

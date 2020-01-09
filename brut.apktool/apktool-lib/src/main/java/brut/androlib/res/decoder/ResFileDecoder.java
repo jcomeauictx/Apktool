@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,11 +14,11 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.androlib.res.decoder;
 
 import brut.androlib.AndrolibException;
 import brut.androlib.err.CantFind9PatchChunk;
+import brut.androlib.err.RawXmlEncounteredException;
 import brut.androlib.res.data.ResResource;
 import brut.androlib.res.data.value.ResBoolValue;
 import brut.androlib.res.data.value.ResFileValue;
@@ -62,6 +63,10 @@ public class ResFileDecoder {
                 decode(inDir, inFileName, outDir, outFileName, "raw");
                 return;
             }
+            if (typeName.equals("font") && !".xml".equals(ext)) {
+                decode(inDir, inFileName, outDir, outFileName, "raw");
+                return;
+            }
             if (typeName.equals("drawable") || typeName.equals("mipmap")) {
                 if (inFileName.toLowerCase().endsWith(".9" + ext)) {
                     outFileName = outResName + ".9" + ext;
@@ -71,10 +76,12 @@ public class ResFileDecoder {
                         outFileName = outResName + ".r.9" + ext;
                     }
 
-                    // check for samsung qmg & spi
-                    if (inFileName.toLowerCase().endsWith(".qmg") || inFileName.toLowerCase().endsWith(".spi")) {
-                        copyRaw(inDir, outDir, outFileName);
-                        return;
+                    // check for raw 9patch images
+                    for (String extension : RAW_9PATCH_IMAGE_EXTENSIONS) {
+                        if (inFileName.toLowerCase().endsWith("." + extension)) {
+                            copyRaw(inDir, outDir, inFileName, outFileName);
+                            return;
+                        }
                     }
 
                     // check for xml 9 patches which are just xml files
@@ -96,6 +103,15 @@ public class ResFileDecoder {
                         outFileName = outResName + ext;
                     }
                 }
+
+                // check for raw image
+                for (String extension : RAW_IMAGE_EXTENSIONS) {
+                    if (inFileName.toLowerCase().endsWith("." + extension)) {
+                        copyRaw(inDir, outDir, inFileName, outFileName);
+                        return;
+                    }
+                }
+
                 if (!".xml".equals(ext)) {
                     decode(inDir, inFileName, outDir, outFileName, "raw");
                     return;
@@ -103,6 +119,11 @@ public class ResFileDecoder {
             }
 
             decode(inDir, inFileName, outDir, outFileName, "xml");
+        } catch (RawXmlEncounteredException ex) {
+            // If we got an error to decode XML, lets assume the file is in raw format.
+            // This is a large assumption, that might increase runtime, but will save us for situations where
+            // XSD files are AXML`d on aapt1, but left in plaintext in aapt2.
+            decode(inDir, inFileName, outDir, outFileName, "raw");
         } catch (AndrolibException ex) {
             LOGGER.log(Level.SEVERE, String.format(
                     "Could not decode file, replacing by FALSE value: %s",
@@ -123,9 +144,10 @@ public class ResFileDecoder {
         }
     }
 
-    public void copyRaw(Directory inDir, Directory outDir, String filename) throws AndrolibException {
+    public void copyRaw(Directory inDir, Directory outDir, String inFilename,
+                        String outFilename) throws AndrolibException {
         try {
-            DirUtil.copyToDir(inDir, outDir, filename);
+            DirUtil.copyToDir(inDir, outDir, inFilename, outFilename);
         } catch (DirectoryException ex) {
             throw new AndrolibException(ex);
         }
@@ -144,4 +166,14 @@ public class ResFileDecoder {
     }
 
     private final static Logger LOGGER = Logger.getLogger(ResFileDecoder.class.getName());
+
+    private final static String[] RAW_IMAGE_EXTENSIONS = new String[] {
+        "m4a", // apple
+        "qmg", // samsung
+    };
+
+    private final static String[] RAW_9PATCH_IMAGE_EXTENSIONS = new String[] {
+        "qmg", // samsung
+        "spi", // samsung
+    };
 }

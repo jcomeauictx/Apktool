@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package brut.androlib;
 
 import brut.androlib.res.AndrolibResources;
@@ -72,18 +72,11 @@ public abstract class TestUtils {
             }
 
             return map;
-        } catch (IOException ex) {
-            throw new BrutException(ex);
-        } catch (XmlPullParserException ex) {
+        } catch (IOException | XmlPullParserException ex) {
             throw new BrutException(ex);
         }
     }
 
-    /*
-     * TODO: move to brut.util.Jar - it's not possible for now, because below
-     * implementation uses brut.dir. I think I should merge all my projects to
-     * single brut.common .
-     */
     public static void copyResourceDir(Class class_, String dirPath, File out) throws BrutException {
         if (!out.exists()) {
             out.mkdirs();
@@ -122,12 +115,7 @@ public abstract class TestUtils {
         }
     }
 
-    /**
-     *
-     * @throws AndrolibException
-     * @throws BrutException
-     */
-    public static void cleanFrameworkFile() throws AndrolibException, BrutException {
+    public static void cleanFrameworkFile() throws BrutException {
         File framework = new File(getFrameworkDir(), "1.apk");
 
         if (Files.exists(framework.toPath())) {
@@ -135,12 +123,18 @@ public abstract class TestUtils {
         }
     }
 
-    /**
-     *
-     * @return File
-     * @throws AndrolibException
-     */
-    public static File getFrameworkDir() throws AndrolibException {
+    public static byte[] readHeaderOfFile(File file, int size) throws IOException {
+        byte[] buffer = new byte[size];
+        InputStream inputStream = new FileInputStream(file);
+        if (inputStream.read(buffer) != buffer.length) {
+            throw new IOException("File size too small for buffer length: " + size);
+        }
+        inputStream.close();
+
+        return buffer;
+    }
+
+    static File getFrameworkDir() throws AndrolibException {
         AndrolibResources androlibResources = new AndrolibResources();
         androlibResources.apkOptions = new ApkOptions();
         return androlibResources.getFrameworkDir();

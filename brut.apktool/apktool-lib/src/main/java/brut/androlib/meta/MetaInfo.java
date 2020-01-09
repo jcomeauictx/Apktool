@@ -1,5 +1,6 @@
 /**
- *  Copyright 2014 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Ryszard Wiśniewski <brut.alll@gmail.com>
+ *  Copyright (C) 2019 Connor Tumbleson <connor.tumbleson@gmail.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -34,6 +35,7 @@ public class MetaInfo {
     public VersionInfo versionInfo;
     public boolean compressionType;
     public boolean sharedLibrary;
+    public boolean sparseResources;
     public Map<String, String> unknownFiles;
     public Collection<String> doNotCompress;
 
@@ -59,7 +61,7 @@ public class MetaInfo {
                 FileOutputStream fos = new FileOutputStream(file);
                 OutputStreamWriter outputStreamWriter = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
                 Writer writer = new BufferedWriter(outputStreamWriter)
-        ){
+        ) {
             save(writer);
         }
     }
@@ -71,7 +73,7 @@ public class MetaInfo {
     public static MetaInfo load(File file) throws IOException {
         try (
                 InputStream fis = new FileInputStream(file)
-        ){
+        ) {
             return load(fis);
         }
     }
